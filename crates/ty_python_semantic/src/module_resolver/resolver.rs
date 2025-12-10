@@ -1482,7 +1482,6 @@ impl fmt::Display for RelaxedModuleName {
 #[derive(Default)]
 struct LegacyNamespacePackageVisitor {
     is_legacy_namespace_package: bool,
-    in_body: bool,
 }
 
 impl Visitor<'_> for LegacyNamespacePackageVisitor {
@@ -1491,19 +1490,43 @@ impl Visitor<'_> for LegacyNamespacePackageVisitor {
             return;
         }
 
-        // Don't traverse into nested bodies.
-        if self.in_body {
-            return;
-        }
-
-        self.in_body = true;
-
         walk_body(self, body);
     }
 
     fn visit_stmt(&mut self, stmt: &ast::Stmt) {
         if self.is_legacy_namespace_package {
             return;
+        }
+
+        if let ast::Stmt::If(ast::StmtIf {
+            body,
+            elif_else_clauses,
+            ..
+        }) = stmt
+        {
+            self.visit_body(body);
+            for ast::ElifElseClause { body: subbody, .. } in elif_else_clauses {
+                self.visit_body(subbody);
+            }
+        };
+
+        if let ast::Stmt::Try(ast::StmtTry {
+            body,
+            handlers,
+            orelse,
+            finalbody,
+            ..
+        }) = stmt
+        {
+            self.visit_body(body);
+            for ast::ExceptHandler::ExceptHandler(ast::ExceptHandlerExceptHandler {
+                body, ..
+            }) in handlers
+            {
+                self.visit_body(body);
+            }
+            self.visit_body(orelse);
+            self.visit_body(finalbody)
         }
 
         let ast::Stmt::Assign(ast::StmtAssign { value, targets, .. }) = stmt else {
